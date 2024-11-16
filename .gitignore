@@ -1,2 +1,6 @@
 
 BEALYDB
+
+# misc
+.DS_Store
+*.pem
