@@ -10,6 +10,9 @@ import {
 
 import User from "../models/User";
 
+import fs from "fs";
+import csv from "csv-parser";
+
 const JWT = process.env.JWT_SECRET as string;
 
 // Register a new user
@@ -51,6 +54,113 @@ export const registerUser = async (req: Request, res: Response) => {
       .status(500)
       .json({ error: "Internal server error occurred during registration." });
   }
+};
+
+export const registerUsersFromCSV = async (req: Request, res: Response) => {
+  const users: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    password: string;
+  }[] = [];
+
+  const errorsArray: string[] = [];
+  const emailSet = new Set<string>();
+  const filePath = "/home/node/app/unique_usersErrors.csv";
+
+  fs.createReadStream(filePath)
+    .pipe(csv())
+    .on("data", (row) => {
+      try {
+        const { name, surname, email } = row;
+
+        if (!name || !surname || !email) {
+          errorsArray.push(
+            `Missing required fields in row: ${JSON.stringify(
+              row
+            )} for surname ${surname} and email ${email}`
+          );
+          return;
+        }
+
+        if (emailSet.has(email)) {
+          errorsArray.push(
+            `Duplicate email ${email} found in row(s): ${JSON.stringify(row)}`
+          );
+          return;
+        }
+
+        const result = registrationSchema.safeParse({
+          firstName: name,
+          lastName: surname,
+          email: email,
+          password: "Password123",
+        });
+
+        if (result.success) {
+          users.push(result.data);
+          emailSet.add(email);
+        } else {
+          errorsArray.push(
+            `Invalid data in row: ${JSON.stringify(row)} for email ${email}`
+          );
+        }
+      } catch (error) {
+        console.error("Error during registration process:", error);
+        res.status(500).json({
+          error: "Internal server error occurred during registration.",
+        });
+      }
+    })
+    .on("end", async () => {
+      try {
+        // Check for existing users in the database
+        const existingUsers = await User.findAll({
+          where: { email: Array.from(emailSet) },
+        });
+
+        const existingEmails = new Set(existingUsers.map((user) => user.email));
+        existingEmails.forEach((email) => {
+          errorsArray.push(`User with email ${email} already exists.`);
+        });
+
+        const newUsers = users.filter(
+          (user) => !existingEmails.has(user.email)
+        );
+
+        const createdUsers = [];
+        for (const userData of newUsers) {
+          const hashedPassword = await bcrypt.hash(userData.password, 10);
+          const token = jwt.sign({ email: userData.email }, JWT, {
+            expiresIn: "1h",
+          });
+
+          const user = await User.create({
+            firstName: userData.firstName,
+            lastName: userData.lastName,
+            email: userData.email,
+            password: hashedPassword,
+            token: token,
+          });
+
+          createdUsers.push(user);
+        }
+
+        if (errorsArray.length > 0) {
+          console.log("Errors during user creation:", errorsArray);
+        }
+
+        res.status(201).json({
+          "Users created": createdUsers,
+          Errors: errorsArray,
+        });
+      } catch (error) {
+        console.error("Error during bulk registration process:", error);
+        res.status(500).json({
+          error: "Internal server error occurred during bulk registration.",
+        });
+      }
+    });
 };
 
 // Login a user

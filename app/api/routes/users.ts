@@ -7,6 +7,7 @@ import {
   getUserInfo,
   updateUser,
   getPublicUsers,
+  registerUsersFromCSV,
 } from "../controllers/userController";
 
 const router = express.Router();
@@ -28,5 +29,8 @@ router.put("/:userId/userInfo", authenticateJWT, refreshToken, updateUser);
 
 // Retrieve all users from databse whose profiles are public
 router.get("/allUsersPublicProfiles", getPublicUsers);
+
+// Register users from CSV file
+router.post("/registerUsersFromCSV", registerUsersFromCSV);
 
 export default router;
